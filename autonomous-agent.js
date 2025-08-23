@@ -282,53 +282,28 @@ class AutonomousHealthcareAgent {
 
     // Telegram webhook endpoint
     this.app.post('/webhook/telegram', (req, res) => {
+      console.log('📱 Telegram webhook received');
+      
       try {
         const update = req.body;
-        console.log('📱 Telegram webhook received');
-        console.log('📦 Webhook keys:', Object.keys(update));
         
-        if (update.message) {
-          const msg = update.message;
-          const chatId = msg.chat.id;
-          const messageText = msg.text;
+        if (update && update.message && update.message.text) {
+          const chatId = update.message.chat.id;
+          const messageText = update.message.text;
           
-          console.log(`💬 Message from ${chatId}: "${messageText}"`);
-
-          if (messageText) {
-            if (messageText.startsWith('/start')) {
-              console.log('🚀 Handling /start command');
-              this.handleStartCommand(chatId);
-            } else if (messageText.startsWith('/help')) {
-              console.log('❓ Handling /help command');
-              this.handleHelpCommand(chatId);
-            } else if (messageText.startsWith('/health')) {
-              console.log('🏥 Handling /health command');
-              this.handleHealthCommand(chatId);
-            } else if (messageText.startsWith('/status')) {
-              console.log('📊 Handling /status command');
-              this.handleStatusCommand(chatId);
-            } else if (messageText.startsWith('/workflow')) {
-              const match = messageText.match(/\/workflow(?:\s+(\d+))?/);
-              const leadCount = parseInt(match[1]) || 3;
-              console.log(`🔧 Handling /workflow command with ${leadCount} leads`);
-              this.handleWorkflowCommand(chatId, leadCount);
-            } else if (!messageText.startsWith('/')) {
-              // AI conversational message
-              console.log('🧠 Processing AI conversational message...');
-              this.handleConversationalMessage(chatId, messageText).catch(error => {
-                console.log('❌ Error in handleConversationalMessage:', error);
-              });
-            }
-          } else {
-            console.log('⚠️ No messageText found');
+          console.log('Got message:', messageText);
+          
+          if (messageText.startsWith('/start')) {
+            this.handleStartCommand(chatId);
+          } else if (!messageText.startsWith('/')) {
+            console.log('Starting AI conversation handler...');
+            this.handleConversationalMessage(chatId, messageText);
           }
-        } else {
-          console.log('⚠️ No message found in update');
         }
         
         res.status(200).send('OK');
       } catch (error) {
-        console.error('❌ Webhook error:', error);
+        console.log('Webhook error:', error);
         res.status(500).send('Error');
       }
     });
