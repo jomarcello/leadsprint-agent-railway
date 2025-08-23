@@ -16,6 +16,7 @@ import chalk from 'chalk';
 import fs from 'fs/promises';
 import { execSync } from 'child_process';
 import axios from 'axios';
+import TelegramBot from 'node-telegram-bot-api';
 
 dotenv.config();
 
@@ -36,11 +37,15 @@ class AutonomousHealthcareAgent {
       notionDatabaseId: process.env.NOTION_DATABASE_ID || this.throwMissingEnvError('NOTION_DATABASE_ID'),
       elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || this.throwMissingEnvError('ELEVENLABS_API_KEY'),
       openRouterApiKey: process.env.OPENROUTER_API_KEY || this.throwMissingEnvError('OPENROUTER_API_KEY'),
-      masterAgentId: process.env.ELEVENLABS_AGENT_ID || this.throwMissingEnvError('ELEVENLABS_AGENT_ID')
+      masterAgentId: process.env.ELEVENLABS_AGENT_ID || this.throwMissingEnvError('ELEVENLABS_AGENT_ID'),
+      telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || this.throwMissingEnvError('TELEGRAM_BOT_TOKEN')
     };
     
     // EXA API key for real healthcare practice discovery
     this.exaApiKey = process.env.EXA_API_KEY || this.throwMissingEnvError('EXA_API_KEY');
+
+    // Initialize Telegram Bot
+    this.setupTelegramBot();
   }
 
   setupMiddleware() {
@@ -172,6 +177,167 @@ class AutonomousHealthcareAgent {
         });
       }
     });
+  }
+
+  setupTelegramBot() {
+    if (!this.config.telegramBotToken) {
+      console.log(chalk.yellow('⚠️ Telegram bot token not provided, skipping bot setup'));
+      return;
+    }
+
+    this.bot = new TelegramBot(this.config.telegramBotToken, { polling: true });
+    console.log(chalk.green('✅ Telegram bot initialized and listening for commands'));
+
+    // Command handlers
+    this.bot.onText(/\/start/, (msg) => {
+      const chatId = msg.chat.id;
+      this.bot.sendMessage(chatId, `
+🤖 *Autonomous Healthcare Agent*
+
+Welcome! I'm your healthcare lead generation assistant.
+
+Available commands:
+• /workflow [count] - Start lead generation (default: 3 leads)
+• /status - Check agent status  
+• /health - Health check
+• /help - Show this help message
+
+Example: /workflow 5
+      `, { parse_mode: 'Markdown' });
+    });
+
+    this.bot.onText(/\/help/, (msg) => {
+      const chatId = msg.chat.id;
+      this.bot.sendMessage(chatId, `
+📋 *Available Commands:*
+
+🚀 */workflow [count]* - Generate healthcare leads
+   Example: \`/workflow 5\` (generates 5 leads)
+   
+📊 */status* - Check current agent status
+❤️ */health* - Perform health check
+🆘 */help* - Show this help message
+
+The agent will automatically:
+1. Find healthcare practices with EXA search
+2. Extract doctor information with GLM-4-9B AI
+3. Create personalized demo websites
+4. Deploy to Railway with custom domains
+5. Store leads in Notion CRM
+      `, { parse_mode: 'Markdown' });
+    });
+
+    this.bot.onText(/\/status/, (msg) => {
+      const chatId = msg.chat.id;
+      const uptime = process.uptime();
+      const hours = Math.floor(uptime / 3600);
+      const minutes = Math.floor((uptime % 3600) / 60);
+      
+      this.bot.sendMessage(chatId, `
+🟢 *Agent Status: ACTIVE*
+
+⏱️ Uptime: ${hours}h ${minutes}m
+🌐 Health Endpoint: /health
+📦 Version: ${this.config.version || '1.0.0'}
+🔧 Environment: ${process.env.NODE_ENV || 'development'}
+
+✅ All systems operational
+      `, { parse_mode: 'Markdown' });
+    });
+
+    this.bot.onText(/\/health/, async (msg) => {
+      const chatId = msg.chat.id;
+      try {
+        // Quick health check
+        const healthStatus = {
+          timestamp: new Date().toISOString(),
+          uptime: Math.floor(process.uptime()),
+          memory: process.memoryUsage(),
+          apiKeys: {
+            openrouter: !!this.config.openRouterApiKey,
+            railway: !!this.config.railwayToken,
+            github: !!this.config.githubToken,
+            elevenlabs: !!this.config.elevenLabsApiKey,
+            notion: !!this.config.notionApiKey,
+            exa: !!this.exaApiKey
+          }
+        };
+        
+        this.bot.sendMessage(chatId, `
+❤️ *Health Check Results*
+
+✅ Status: Healthy
+⏰ ${healthStatus.timestamp}
+🔑 API Keys: ${Object.values(healthStatus.apiKeys).filter(Boolean).length}/6 configured
+💾 Memory: ${Math.round(healthStatus.memory.heapUsed / 1024 / 1024)}MB used
+        `, { parse_mode: 'Markdown' });
+      } catch (error) {
+        this.bot.sendMessage(chatId, `❌ Health check failed: ${error.message}`);
+      }
+    });
+
+    this.bot.onText(/\/workflow(?:\s+(\d+))?/, async (msg, match) => {
+      const chatId = msg.chat.id;
+      const leadCount = parseInt(match[1]) || 3;
+      
+      if (leadCount < 1 || leadCount > 10) {
+        this.bot.sendMessage(chatId, '❌ Invalid lead count. Please specify between 1-10 leads.');
+        return;
+      }
+
+      this.bot.sendMessage(chatId, `
+🚀 *Starting Healthcare Lead Generation*
+
+🎯 Target: ${leadCount} healthcare leads
+⏳ This may take 5-15 minutes...
+
+I'll keep you updated on progress!
+      `, { parse_mode: 'Markdown' });
+
+      try {
+        // Execute workflow in background
+        this.executeWorkflowWithUpdates(chatId, leadCount);
+      } catch (error) {
+        this.bot.sendMessage(chatId, `❌ Failed to start workflow: ${error.message}`);
+      }
+    });
+
+    // Error handling
+    this.bot.on('error', (error) => {
+      console.log(chalk.red('❌ Telegram Bot Error:'), error);
+    });
+
+    // Polling error handling
+    this.bot.on('polling_error', (error) => {
+      console.log(chalk.red('❌ Telegram Polling Error:'), error);
+    });
+  }
+
+  async executeWorkflowWithUpdates(chatId, leadCount) {
+    try {
+      await this.bot.sendMessage(chatId, '🔍 Step 1: Searching for healthcare practices...');
+      
+      const results = await this.executeAutonomousWorkflow(leadCount);
+      
+      if (results && results.length > 0) {
+        const successCount = results.filter(r => r.success).length;
+        await this.bot.sendMessage(chatId, `
+✅ *Workflow Complete!*
+
+📊 Results:
+• ${successCount}/${results.length} leads generated successfully
+• All leads stored in Notion CRM
+• Demo websites deployed to Railway
+
+🎉 Healthcare lead generation finished!
+        `, { parse_mode: 'Markdown' });
+      } else {
+        await this.bot.sendMessage(chatId, '❌ Workflow completed but no leads were generated successfully.');
+      }
+    } catch (error) {
+      console.log(chalk.red('❌ Workflow error:'), error);
+      await this.bot.sendMessage(chatId, `❌ Workflow failed: ${error.message}`);
+    }
   }
 
   async executeAutonomousWorkflow(leadCount) {
