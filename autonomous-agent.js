@@ -613,7 +613,17 @@ USER REQUEST: ${messageText}`;
       
       // Try to parse as JSON, fallback to text response
       try {
-        const parsed = JSON.parse(aiContent);
+        // Strip markdown code blocks if present
+        let cleanedContent = aiContent.trim();
+        if (cleanedContent.startsWith('```json') && cleanedContent.endsWith('```')) {
+          cleanedContent = cleanedContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+          console.log('🧹 Stripped markdown code blocks from AI response');
+        } else if (cleanedContent.startsWith('```') && cleanedContent.endsWith('```')) {
+          cleanedContent = cleanedContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+          console.log('🧹 Stripped generic code blocks from AI response');
+        }
+        
+        const parsed = JSON.parse(cleanedContent);
         console.log('✅ Successfully parsed JSON response');
         return parsed;
       } catch (parseError) {
