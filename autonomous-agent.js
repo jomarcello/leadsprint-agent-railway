@@ -177,6 +177,39 @@ class AutonomousHealthcareAgent {
         });
       }
     });
+
+    // AI Conversational endpoint - test conversational AI functionality
+    this.app.post('/conversation', async (req, res) => {
+      try {
+        const { message } = req.body;
+        
+        if (!message) {
+          return res.status(400).json({ error: 'message is required' });
+        }
+        
+        console.log(chalk.cyan(`🤖 AI CONVERSATION: Processing message`));
+        console.log(chalk.gray(`Message: ${message}`));
+        
+        // Use empty conversation history for web requests
+        const conversationHistory = [];
+        const aiResponse = await this.processConversationalInput(message, conversationHistory);
+        
+        res.json({
+          success: true,
+          message: message,
+          aiResponse: aiResponse,
+          timestamp: new Date().toISOString()
+        });
+        
+      } catch (error) {
+        console.error(chalk.red('❌ Conversation endpoint error:'), error);
+        res.status(500).json({
+          success: false,
+          error: error.message,
+          stack: error.stack
+        });
+      }
+    });
   }
 
   setupTelegramBot() {
@@ -471,7 +504,7 @@ USER REQUEST: ${messageText}`;
 
     try {
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'qwen/qwen3-coder:free',
+        model: 'z-ai/glm-4.5-air:free',
         messages: [
           {
             role: 'system',
