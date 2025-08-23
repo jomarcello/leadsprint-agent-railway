@@ -194,12 +194,37 @@ class AutonomousHealthcareAgent {
         const conversationHistory = [];
         const aiResponse = await this.processConversationalInput(message, conversationHistory);
         
-        res.json({
-          success: true,
-          message: message,
-          aiResponse: aiResponse,
-          timestamp: new Date().toISOString()
-        });
+        // Check if AI wants to execute workflow
+        if (aiResponse.executeWorkflow && aiResponse.workflowConfig) {
+          console.log(chalk.green('🚀 AI requested workflow execution - starting custom workflow'));
+          
+          // Send immediate response to user that we're starting
+          res.json({
+            success: true,
+            message: message,
+            aiResponse: aiResponse,
+            workflowStarted: true,
+            status: 'Workflow started - this may take 5-15 minutes',
+            timestamp: new Date().toISOString()
+          });
+          
+          // Execute workflow in background (don't await to avoid timeout)
+          this.executeCustomAutonomousWorkflow(aiResponse.workflowConfig).then(results => {
+            console.log(chalk.green(`✅ Background workflow completed: ${results.filter(r => r.success).length}/${results.length} successful`));
+          }).catch(error => {
+            console.log(chalk.red('❌ Background workflow failed:'), error);
+          });
+          
+        } else {
+          // Just conversation, no workflow
+          res.json({
+            success: true,
+            message: message,
+            aiResponse: aiResponse,
+            workflowStarted: false,
+            timestamp: new Date().toISOString()
+          });
+        }
         
       } catch (error) {
         console.error(chalk.red('❌ Conversation endpoint error:'), error);
@@ -207,6 +232,50 @@ class AutonomousHealthcareAgent {
           success: false,
           error: error.message,
           stack: error.stack
+        });
+      }
+    });
+
+    // Workflow results endpoint - check stored leads in Notion
+    this.app.get('/leads', async (req, res) => {
+      try {
+        console.log(chalk.cyan('📊 FETCHING: Recent leads from Notion database'));
+        
+        const response = await axios.post(`https://api.notion.com/v1/databases/${this.config.notionDatabaseId}/query`, {
+          sorts: [{ property: 'Created time', direction: 'descending' }],
+          page_size: 20
+        }, {
+          headers: {
+            'Authorization': `Bearer ${this.config.notionApiKey}`,
+            'Content-Type': 'application/json',
+            'Notion-Version': '2022-06-28'
+          }
+        });
+
+        const leads = response.data.results.map(page => ({
+          id: page.id,
+          practiceName: page.properties['Practice Name']?.title[0]?.text?.content || 'Unknown',
+          location: page.properties['Location']?.rich_text[0]?.text?.content || 'Unknown',
+          phone: page.properties['Phone Number']?.phone_number || page.properties['Phone Number']?.rich_text[0]?.text?.content || 'Unknown',
+          email: page.properties['Email']?.email || 'Unknown',
+          websiteUrl: page.properties['Website URL']?.url || 'Unknown',
+          demoUrl: page.properties['Demo URL']?.url || null,
+          agentId: page.properties['Agent ID']?.rich_text[0]?.text?.content || 'pending',
+          createdTime: page.created_time
+        }));
+
+        res.json({
+          success: true,
+          totalLeads: leads.length,
+          leads: leads,
+          timestamp: new Date().toISOString()
+        });
+        
+      } catch (error) {
+        console.error(chalk.red('❌ Leads fetch error:'), error);
+        res.status(500).json({
+          success: false,
+          error: error.message
         });
       }
     });
