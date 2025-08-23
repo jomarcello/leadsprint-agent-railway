@@ -285,30 +285,45 @@ class AutonomousHealthcareAgent {
       try {
         const update = req.body;
         console.log(chalk.cyan('📱 Telegram webhook received'));
+        console.log(chalk.gray('📦 Webhook payload:'), JSON.stringify(update, null, 2));
         
         if (update.message) {
           const msg = update.message;
           const chatId = msg.chat.id;
           const messageText = msg.text;
+          
+          console.log(chalk.blue(`💬 Message from ${chatId}: "${messageText}"`));
 
           if (messageText) {
             if (messageText.startsWith('/start')) {
+              console.log(chalk.green('🚀 Handling /start command'));
               this.handleStartCommand(chatId);
             } else if (messageText.startsWith('/help')) {
+              console.log(chalk.green('❓ Handling /help command'));
               this.handleHelpCommand(chatId);
             } else if (messageText.startsWith('/health')) {
+              console.log(chalk.green('🏥 Handling /health command'));
               this.handleHealthCommand(chatId);
             } else if (messageText.startsWith('/status')) {
+              console.log(chalk.green('📊 Handling /status command'));
               this.handleStatusCommand(chatId);
             } else if (messageText.startsWith('/workflow')) {
               const match = messageText.match(/\/workflow(?:\s+(\d+))?/);
               const leadCount = parseInt(match[1]) || 3;
+              console.log(chalk.green(`🔧 Handling /workflow command with ${leadCount} leads`));
               this.handleWorkflowCommand(chatId, leadCount);
             } else if (!messageText.startsWith('/')) {
               // AI conversational message
-              this.handleConversationalMessage(chatId, messageText);
+              console.log(chalk.magenta('🧠 Processing AI conversational message...'));
+              this.handleConversationalMessage(chatId, messageText).catch(error => {
+                console.log(chalk.red('❌ Error in handleConversationalMessage:'), error);
+              });
             }
+          } else {
+            console.log(chalk.yellow('⚠️ No messageText found'));
           }
+        } else {
+          console.log(chalk.yellow('⚠️ No message found in update'));
         }
         
         res.status(200).send('OK');
@@ -475,65 +490,84 @@ I'll keep you updated on progress!`, { parse_mode: 'Markdown' });
   }
 
   async handleConversationalMessage(chatId, messageText) {
-    // Initialize user context if not exists
-    if (!this.userContexts.has(chatId)) {
-      this.userContexts.set(chatId, {
-        conversationHistory: [],
-        lastWorkflowConfig: null
-      });
-    }
-
-    const userContext = this.userContexts.get(chatId);
+    console.log(chalk.cyan(`🧠 STARTING handleConversationalMessage for chatId: ${chatId}, message: "${messageText}"`));
     
-    // Add message to conversation history
-    userContext.conversationHistory.push({
-      role: 'user',
-      content: messageText,
-      timestamp: new Date().toISOString()
-    });
-
-    // Keep conversation history manageable (last 10 messages)
-    if (userContext.conversationHistory.length > 10) {
-      userContext.conversationHistory = userContext.conversationHistory.slice(-10);
-    }
-
-    this.bot.sendMessage(chatId, '🧠 *AI is processing your request...* Analyzing your instructions and generating workflow parameters.', { parse_mode: 'Markdown' });
-
     try {
-      // Use GLM-4.5-Air to understand the user's intent and extract workflow parameters
-      const aiResponse = await this.processConversationalInput(messageText, userContext.conversationHistory);
-      
-      console.log(chalk.blue('🧠 AI Response:'), JSON.stringify(aiResponse, null, 2));
-      
-      // Verify we have a proper response object
-      if (typeof aiResponse !== 'object' || aiResponse === null) {
-        throw new Error('Invalid AI response format');
+      // Initialize user context if not exists
+      if (!this.userContexts.has(chatId)) {
+        console.log(chalk.blue('📝 Creating new user context'));
+        this.userContexts.set(chatId, {
+          conversationHistory: [],
+          lastWorkflowConfig: null
+        });
       }
 
-      // Add AI response to conversation history
+      const userContext = this.userContexts.get(chatId);
+      console.log(chalk.blue(`📚 Current conversation history length: ${userContext.conversationHistory.length}`));
+      
+      // Add message to conversation history
       userContext.conversationHistory.push({
-        role: 'assistant',
-        content: aiResponse.response || 'AI processing completed',
+        role: 'user',
+        content: messageText,
         timestamp: new Date().toISOString()
       });
 
-      // Send user-friendly response (not the raw JSON)
-      const userMessage = aiResponse.response || 'Processing your request...';
-      await this.bot.sendMessage(chatId, userMessage, { parse_mode: 'Markdown' });
-
-      // If AI determined this is a workflow request, execute it
-      if (aiResponse.executeWorkflow && aiResponse.workflowConfig) {
-        console.log(chalk.green('🚀 Starting workflow execution'));
-        userContext.lastWorkflowConfig = aiResponse.workflowConfig;
-        await this.executeCustomWorkflowWithUpdates(chatId, aiResponse.workflowConfig);
-      } else {
-        console.log(chalk.yellow('💭 No workflow execution requested'));
+      // Keep conversation history manageable (last 10 messages)
+      if (userContext.conversationHistory.length > 10) {
+        userContext.conversationHistory = userContext.conversationHistory.slice(-10);
       }
 
-    } catch (error) {
-      console.log(chalk.red('❌ AI Processing Error:'), error);
-      await this.bot.sendMessage(chatId, `❌ Sorry, I had trouble processing your request: ${error.message}\n\nTry being more specific or use /help for examples.`);
+      console.log(chalk.yellow('📨 Sending "processing" message to user...'));
+      await this.bot.sendMessage(chatId, '🧠 *AI is processing your request...* Analyzing your instructions and generating workflow parameters.', { parse_mode: 'Markdown' });
+
+      try {
+        console.log(chalk.magenta('🤖 Calling processConversationalInput...'));
+        // Use GLM-4.5-Air to understand the user's intent and extract workflow parameters
+        const aiResponse = await this.processConversationalInput(messageText, userContext.conversationHistory);
+        
+        console.log(chalk.blue('🧠 AI Response:'), JSON.stringify(aiResponse, null, 2));
+        
+        // Verify we have a proper response object
+        if (typeof aiResponse !== 'object' || aiResponse === null) {
+          throw new Error('Invalid AI response format');
+        }
+
+        // Add AI response to conversation history
+        userContext.conversationHistory.push({
+          role: 'assistant',
+          content: aiResponse.response || 'AI processing completed',
+          timestamp: new Date().toISOString()
+        });
+
+        // Send user-friendly response (not the raw JSON)
+        const userMessage = aiResponse.response || 'Processing your request...';
+        console.log(chalk.green(`📤 Sending response to user: "${userMessage}"`));
+        await this.bot.sendMessage(chatId, userMessage, { parse_mode: 'Markdown' });
+
+        // If AI determined this is a workflow request, execute it
+        if (aiResponse.executeWorkflow && aiResponse.workflowConfig) {
+          console.log(chalk.green('🚀 AI requested workflow execution - starting workflow'));
+          userContext.lastWorkflowConfig = aiResponse.workflowConfig;
+          await this.executeCustomWorkflowWithUpdates(chatId, aiResponse.workflowConfig);
+        } else {
+          console.log(chalk.yellow('💭 No workflow execution requested by AI'));
+        }
+
+      } catch (error) {
+        console.log(chalk.red('❌ AI Processing Error:'), error);
+        await this.bot.sendMessage(chatId, `❌ Sorry, I had trouble processing your request: ${error.message}\n\nTry being more specific or use /help for examples.`);
+      }
+      
+    } catch (outerError) {
+      console.log(chalk.red('❌ FATAL: handleConversationalMessage outer error:'), outerError);
+      try {
+        await this.bot.sendMessage(chatId, `❌ A serious error occurred: ${outerError.message}`);
+      } catch (sendError) {
+        console.log(chalk.red('❌ Could not even send error message:'), sendError);
+      }
     }
+    
+    console.log(chalk.cyan('✅ COMPLETED handleConversationalMessage'));
   }
 
   async processConversationalInput(messageText, conversationHistory) {
