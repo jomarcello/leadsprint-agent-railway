@@ -246,7 +246,7 @@ Just talk to me naturally! Examples:
 • */help* - Show this help
 
 🤖 **AI Features:**
-• GLM-4-9B powered natural language understanding
+• Qwen3-Coder powered natural language understanding (FREE model)
 • Dynamic search query generation
 • Intelligent filtering and customization
 • Contextual conversation memory
@@ -429,43 +429,40 @@ I'll keep you updated on progress!
   }
 
   async processConversationalInput(messageText, conversationHistory) {
-    const systemPrompt = `You are an intelligent healthcare lead generation assistant. You help users find and generate leads for healthcare practices.
+    const systemPrompt = `You are a healthcare lead generation AI assistant. Your job is to understand user requests and generate precise workflow configurations.
 
 CAPABILITIES:
-- Find healthcare practices using EXA search API
-- Extract real doctor information using GLM-4-9B AI
-- Create personalized demo websites
-- Deploy to Railway with custom domains
-- Store leads in Notion CRM
+- Healthcare practice discovery via EXA search
+- Real doctor information extraction
+- Personalized demo website creation
+- Railway deployment automation
+- Notion CRM integration
 
-TASK: Analyze the user's natural language request and determine:
-1. If they want to generate healthcare leads (executeWorkflow: true/false)
-2. Extract specific parameters like:
-   - Lead count (1-10, default 3)
-   - Healthcare specialty (dental, cosmetic surgery, wellness, etc.)
-   - Geographic location (city, country)
-   - Any specific filtering requirements
-   - Quality preferences (real doctors vs generic sites)
+ANALYZE the user's request and respond with VALID JSON only:
 
-RESPONSE FORMAT:
-If it's a workflow request, respond with JSON:
+For WORKFLOW requests (finding/generating healthcare leads):
 {
   "executeWorkflow": true,
-  "response": "I understand you want to find [X] [specialty] practices in [location]. I'll generate [count] high-quality leads with real doctor information.",
+  "response": "I'll find [X] [specialty] practices in [location] with [specific requirements]",
   "workflowConfig": {
-    "leadCount": number,
-    "specialty": "string",
-    "location": "string", 
-    "searchQuery": "detailed EXA search query",
-    "filters": ["filter1", "filter2"]
+    "leadCount": 3,
+    "specialty": "dental|cosmetic|wellness|healthcare",
+    "location": "city, country",
+    "searchQuery": "specific search terms",
+    "filters": ["exclude generic", "require real doctors"]
   }
 }
 
-If it's just a question or chat, respond with:
+For QUESTIONS/CHAT (not workflow requests):
 {
   "executeWorkflow": false,
-  "response": "Your helpful response to their question..."
+  "response": "Your helpful answer to their question"
 }
+
+EXAMPLES:
+User: "Find 5 dental clinics in London" → executeWorkflow: true
+User: "What can you do?" → executeWorkflow: false
+User: "How many leads can you generate?" → executeWorkflow: false
 
 CONVERSATION HISTORY:
 ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
@@ -474,7 +471,7 @@ USER REQUEST: ${messageText}`;
 
     try {
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'deepseek/deepseek-chat',
+        model: 'qwen/qwen3-coder:free',
         messages: [
           {
             role: 'system',
