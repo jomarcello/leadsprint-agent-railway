@@ -500,28 +500,39 @@ I'll keep you updated on progress!`, { parse_mode: 'Markdown' });
     this.bot.sendMessage(chatId, '🧠 *AI is processing your request...* Analyzing your instructions and generating workflow parameters.', { parse_mode: 'Markdown' });
 
     try {
-      // Use GLM-4-9B to understand the user's intent and extract workflow parameters
+      // Use GLM-4.5-Air to understand the user's intent and extract workflow parameters
       const aiResponse = await this.processConversationalInput(messageText, userContext.conversationHistory);
       
+      console.log(chalk.blue('🧠 AI Response:'), JSON.stringify(aiResponse, null, 2));
+      
+      // Verify we have a proper response object
+      if (typeof aiResponse !== 'object' || aiResponse === null) {
+        throw new Error('Invalid AI response format');
+      }
+
       // Add AI response to conversation history
       userContext.conversationHistory.push({
         role: 'assistant',
-        content: aiResponse.response,
+        content: aiResponse.response || 'AI processing completed',
         timestamp: new Date().toISOString()
       });
 
-      // Send AI's understanding back to user
-      await this.bot.sendMessage(chatId, aiResponse.response, { parse_mode: 'Markdown' });
+      // Send user-friendly response (not the raw JSON)
+      const userMessage = aiResponse.response || 'Processing your request...';
+      await this.bot.sendMessage(chatId, userMessage, { parse_mode: 'Markdown' });
 
       // If AI determined this is a workflow request, execute it
-      if (aiResponse.executeWorkflow) {
+      if (aiResponse.executeWorkflow && aiResponse.workflowConfig) {
+        console.log(chalk.green('🚀 Starting workflow execution'));
         userContext.lastWorkflowConfig = aiResponse.workflowConfig;
         await this.executeCustomWorkflowWithUpdates(chatId, aiResponse.workflowConfig);
+      } else {
+        console.log(chalk.yellow('💭 No workflow execution requested'));
       }
 
     } catch (error) {
       console.log(chalk.red('❌ AI Processing Error:'), error);
-      this.bot.sendMessage(chatId, `❌ Sorry, I had trouble processing your request: ${error.message}\n\nTry being more specific or use /help for examples.`);
+      await this.bot.sendMessage(chatId, `❌ Sorry, I had trouble processing your request: ${error.message}\n\nTry being more specific or use /help for examples.`);
     }
   }
 
@@ -589,11 +600,17 @@ USER REQUEST: ${messageText}`;
       });
 
       const aiContent = response.data.choices[0].message.content;
+      console.log(chalk.gray('🤖 Raw AI Content:'), aiContent);
       
       // Try to parse as JSON, fallback to text response
       try {
-        return JSON.parse(aiContent);
+        const parsed = JSON.parse(aiContent);
+        console.log(chalk.green('✅ Successfully parsed JSON response'));
+        return parsed;
       } catch (parseError) {
+        console.log(chalk.yellow('⚠️ Failed to parse JSON, treating as text response'));
+        console.log(chalk.gray('Parse error:'), parseError.message);
+        
         // If not valid JSON, treat as simple text response
         return {
           executeWorkflow: false,
