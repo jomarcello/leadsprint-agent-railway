@@ -279,17 +279,199 @@ class AutonomousHealthcareAgent {
         });
       }
     });
+
+    // Telegram webhook endpoint
+    this.app.post('/webhook/telegram', (req, res) => {
+      try {
+        const update = req.body;
+        console.log(chalk.cyan('📱 Telegram webhook received'));
+        
+        if (update.message) {
+          const msg = update.message;
+          const chatId = msg.chat.id;
+          const messageText = msg.text;
+
+          if (messageText) {
+            if (messageText.startsWith('/start')) {
+              this.handleStartCommand(chatId);
+            } else if (messageText.startsWith('/help')) {
+              this.handleHelpCommand(chatId);
+            } else if (messageText.startsWith('/health')) {
+              this.handleHealthCommand(chatId);
+            } else if (messageText.startsWith('/status')) {
+              this.handleStatusCommand(chatId);
+            } else if (messageText.startsWith('/workflow')) {
+              const match = messageText.match(/\/workflow(?:\s+(\d+))?/);
+              const leadCount = parseInt(match[1]) || 3;
+              this.handleWorkflowCommand(chatId, leadCount);
+            } else if (!messageText.startsWith('/')) {
+              // AI conversational message
+              this.handleConversationalMessage(chatId, messageText);
+            }
+          }
+        }
+        
+        res.status(200).send('OK');
+      } catch (error) {
+        console.error(chalk.red('❌ Webhook error:'), error);
+        res.status(500).send('Error');
+      }
+    });
   }
 
   setupTelegramBot() {
-    // DISABLED: Telegram bot polling to prevent conflicts
-    // Multiple instances cause: "Conflict: terminated by other getUpdates request"
-    console.log(chalk.yellow('⚠️ Telegram bot polling DISABLED to prevent conflicts'));
-    console.log(chalk.cyan('🌐 Use POST /conversation for AI interactions'));
-    console.log(chalk.cyan('🌐 Use GET /leads to check generated results'));
+    if (!this.config.telegramBotToken) {
+      console.log(chalk.yellow('⚠️ Telegram bot token not provided, skipping bot setup'));
+      return;
+    }
+
+    // Use webhook instead of polling to prevent conflicts
+    this.bot = new TelegramBot(this.config.telegramBotToken);
+    console.log(chalk.green('✅ Telegram bot initialized (webhook mode)'));
     
-    // Initialize user contexts for potential webhook usage
+    // Initialize user contexts
     this.userContexts = new Map();
+
+    // Set webhook (this will be called automatically by Railway)
+    const webhookUrl = `https://${process.env.RAILWAY_STATIC_URL || 'leadsprint-agent-clean-production.up.railway.app'}/webhook/telegram`;
+    this.bot.setWebHook(webhookUrl).then(() => {
+      console.log(chalk.green(`✅ Telegram webhook set to: ${webhookUrl}`));
+    }).catch(error => {
+      console.log(chalk.yellow(`⚠️ Webhook setup warning: ${error.message}`));
+    });
+  }
+
+  handleStartCommand(chatId) {
+    // Initialize user context
+    this.userContexts.set(chatId, {
+      conversationHistory: [],
+      lastWorkflowConfig: null
+    });
+    
+    this.bot.sendMessage(chatId, `
+🤖 *Autonomous Healthcare Agent with AI*
+
+Welcome! I'm your intelligent healthcare lead generation assistant.
+
+💬 **AI Conversation Mode**
+Just talk to me naturally! I can understand complex instructions like:
+• "Find 5 cosmetic surgery clinics in London"
+• "Generate leads for dental practices in Germany, exclude generic ones"  
+• "Search for wellness centers in Amsterdam with real doctor names"
+
+📋 **Quick Commands:**
+• /workflow [count] - Traditional workflow trigger
+• /status - Agent status
+• /health - Health check
+• /help - Show help
+
+🧠 **AI Features:**
+• GLM-4.5-Air powered natural language understanding (FREE model)
+• Dynamic workflow customization
+• Intelligent filtering
+• Conversational lead generation
+
+Just send me a message describing what you want! 🚀`, { parse_mode: 'Markdown' });
+  }
+
+  handleHelpCommand(chatId) {
+    this.bot.sendMessage(chatId, `
+📋 *AI Healthcare Lead Generation Assistant*
+
+🧠 **AI Conversation Mode** (NEW!)
+Just talk to me naturally! Examples:
+• "Find 3 plastic surgery clinics in Paris with real doctor names"
+• "Generate leads for dental practices in Berlin, avoid generic websites"
+• "Search for 5 wellness centers in Toronto, focus on established practices"
+
+🔧 **Commands:**
+• */workflow [count]* - Traditional workflow (1-10 leads)
+• */status* - Agent status and uptime
+• */health* - Complete health check
+• */help* - Show this help
+
+🤖 **AI Features:**
+• GLM-4.5-Air powered natural language understanding (FREE model)
+• Dynamic search query generation
+• Intelligent filtering and customization
+• Contextual conversation memory
+• Custom workflow parameters
+
+The AI agent will automatically:
+1. Understand your natural language request
+2. Find healthcare practices with EXA search
+3. Extract real doctor information with AI
+4. Create personalized demo websites
+5. Deploy to Railway with custom domains
+6. Store leads in Notion CRM
+
+💬 Just describe what you want in plain English!`, { parse_mode: 'Markdown' });
+  }
+
+  handleStatusCommand(chatId) {
+    const uptime = process.uptime();
+    const hours = Math.floor(uptime / 3600);
+    const minutes = Math.floor((uptime % 3600) / 60);
+    
+    this.bot.sendMessage(chatId, `
+🟢 *Agent Status: ACTIVE*
+
+⏱️ Uptime: ${hours}h ${minutes}m
+🌐 Health Endpoint: /health
+📦 Version: 1.0.0
+🔧 Environment: ${process.env.NODE_ENV || 'production'}
+
+✅ All systems operational`, { parse_mode: 'Markdown' });
+  }
+
+  async handleHealthCommand(chatId) {
+    try {
+      const healthStatus = {
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()),
+        memory: process.memoryUsage(),
+        apiKeys: {
+          openrouter: !!this.config.openRouterApiKey,
+          railway: !!this.config.railwayToken,
+          github: !!this.config.githubToken,
+          elevenlabs: !!this.config.elevenLabsApiKey,
+          notion: !!this.config.notionApiKey,
+          exa: !!this.exaApiKey
+        }
+      };
+      
+      this.bot.sendMessage(chatId, `
+❤️ *Health Check Results*
+
+✅ Status: Healthy
+⏰ ${healthStatus.timestamp}
+🔑 API Keys: ${Object.values(healthStatus.apiKeys).filter(Boolean).length}/6 configured
+💾 Memory: ${Math.round(healthStatus.memory.heapUsed / 1024 / 1024)}MB used`, { parse_mode: 'Markdown' });
+    } catch (error) {
+      this.bot.sendMessage(chatId, `❌ Health check failed: ${error.message}`);
+    }
+  }
+
+  async handleWorkflowCommand(chatId, leadCount) {
+    if (leadCount < 1 || leadCount > 10) {
+      this.bot.sendMessage(chatId, '❌ Invalid lead count. Please specify between 1-10 leads.');
+      return;
+    }
+
+    this.bot.sendMessage(chatId, `
+🚀 *Starting Healthcare Lead Generation*
+
+🎯 Target: ${leadCount} healthcare leads
+⏳ This may take 5-15 minutes...
+
+I'll keep you updated on progress!`, { parse_mode: 'Markdown' });
+
+    try {
+      // Execute workflow in background
+      this.executeWorkflowWithUpdates(chatId, leadCount);
+    } catch (error) {
+      this.bot.sendMessage(chatId, `❌ Failed to start workflow: ${error.message}`);
+    }
   }
 
   async handleConversationalMessage(chatId, messageText) {
