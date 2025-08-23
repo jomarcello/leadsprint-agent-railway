@@ -794,79 +794,43 @@ USER REQUEST: ${messageText}`;
   }
 
   async findHealthcarePracticesWithCustomEXA(searchQuery, leadCount, workflowConfig) {
-    console.log('🔍 Starting EXA API search...');
-    console.log('📝 Search parameters:', {
-      query: searchQuery,
-      leadCount: leadCount,
-      location: workflowConfig.location,
-      specialty: workflowConfig.specialty
-    });
-    
     try {
-      const searchPayload = {
+      const response = await axios.post('https://api.exa.ai/search', {
         query: searchQuery,
         type: 'neural',
         useAutoprompt: true,
         numResults: Math.min(leadCount * 2, 20), // Get more results for filtering
         category: 'healthcare',
         startPublishedDate: '2020-01-01'
-      };
-      
-      console.log('📡 Sending EXA API request with payload:', searchPayload);
-      
-      const response = await axios.post('https://api.exa.ai/search', searchPayload, {
+      }, {
         headers: {
           'Authorization': `Bearer ${this.exaApiKey}`,
           'Content-Type': 'application/json'
         }
       });
 
-      console.log('✅ EXA API Response received');
-      console.log('📊 Response status:', response.status);
-      console.log('📊 Raw results count:', response.data.results?.length || 0);
-
       let practices = response.data.results || [];
-      console.log('🏥 Initial practices found:', practices.length);
-      
-      // Log some practice titles for debugging
-      if (practices.length > 0) {
-        console.log('🏥 Sample practice titles:');
-        practices.slice(0, 3).forEach((practice, i) => {
-          console.log(`   ${i + 1}. ${practice.title}`);
-        });
-      }
       
       // Apply location filtering if specified
       if (workflowConfig.location) {
-        const beforeLocationFilter = practices.length;
         practices = practices.filter(practice => 
           practice.title?.toLowerCase().includes(workflowConfig.location.toLowerCase()) ||
           practice.url?.toLowerCase().includes(workflowConfig.location.toLowerCase()) ||
           practice.text?.toLowerCase().includes(workflowConfig.location.toLowerCase())
         );
-        console.log(`🌍 Location filter (${workflowConfig.location}): ${beforeLocationFilter} → ${practices.length} practices`);
       }
       
       // Apply specialty filtering if specified
       if (workflowConfig.specialty) {
-        const beforeSpecialtyFilter = practices.length;
         practices = practices.filter(practice => 
           practice.title?.toLowerCase().includes(workflowConfig.specialty.toLowerCase()) ||
           practice.text?.toLowerCase().includes(workflowConfig.specialty.toLowerCase())
         );
-        console.log(`🏥 Specialty filter (${workflowConfig.specialty}): ${beforeSpecialtyFilter} → ${practices.length} practices`);
       }
 
-      const finalPractices = practices.slice(0, leadCount);
-      console.log(`✅ Final result: ${finalPractices.length} practices after filtering`);
-      
-      return finalPractices;
+      return practices.slice(0, leadCount);
     } catch (error) {
-      console.log('❌ Custom EXA API Error:', error);
-      if (error.response) {
-        console.log('❌ Response status:', error.response.status);
-        console.log('❌ Response data:', error.response.data);
-      }
+      console.log(chalk.red('❌ Custom EXA API Error:'), error);
       throw error;
     }
   }
