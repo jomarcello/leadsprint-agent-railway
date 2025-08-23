@@ -311,13 +311,13 @@ class AutonomousHealthcareAgent {
 
   setupTelegramBot() {
     if (!this.config.telegramBotToken) {
-      console.log(chalk.yellow('⚠️ Telegram bot token not provided, skipping bot setup'));
+      console.log('⚠️ Telegram bot token not provided, skipping bot setup');
       return;
     }
 
     // Use webhook instead of polling to prevent conflicts
     this.bot = new TelegramBot(this.config.telegramBotToken);
-    console.log(chalk.green('✅ Telegram bot initialized (webhook mode)'));
+    console.log('✅ Telegram bot initialized (webhook mode)');
     
     // Initialize user contexts
     this.userContexts = new Map();
@@ -325,9 +325,9 @@ class AutonomousHealthcareAgent {
     // Set webhook (this will be called automatically by Railway)
     const webhookUrl = `https://${process.env.RAILWAY_STATIC_URL || 'leadsprint-agent-clean-production.up.railway.app'}/webhook/telegram`;
     this.bot.setWebHook(webhookUrl).then(() => {
-      console.log(chalk.green(`✅ Telegram webhook set to: ${webhookUrl}`));
+      console.log(`✅ Telegram webhook set to: ${webhookUrl}`);
     }).catch(error => {
-      console.log(chalk.yellow(`⚠️ Webhook setup warning: ${error.message}`));
+      console.log(`⚠️ Webhook setup warning: ${error.message}`);
     });
   }
 
@@ -609,16 +609,16 @@ USER REQUEST: ${messageText}`;
       });
 
       const aiContent = response.data.choices[0].message.content;
-      console.log(chalk.gray('🤖 Raw AI Content:'), aiContent);
+      console.log('🤖 Raw AI Content:', aiContent);
       
       // Try to parse as JSON, fallback to text response
       try {
         const parsed = JSON.parse(aiContent);
-        console.log(chalk.green('✅ Successfully parsed JSON response'));
+        console.log('✅ Successfully parsed JSON response');
         return parsed;
       } catch (parseError) {
-        console.log(chalk.yellow('⚠️ Failed to parse JSON, treating as text response'));
-        console.log(chalk.gray('Parse error:'), parseError.message);
+        console.log('⚠️ Failed to parse JSON, treating as text response');
+        console.log('Parse error:', parseError.message);
         
         // If not valid JSON, treat as simple text response
         return {
@@ -628,7 +628,7 @@ USER REQUEST: ${messageText}`;
       }
 
     } catch (error) {
-      console.log(chalk.red('❌ OpenRouter API Error:'), error);
+      console.log('❌ OpenRouter API Error:', error);
       throw new Error('AI model communication failed');
     }
   }
@@ -769,43 +769,85 @@ USER REQUEST: ${messageText}`;
   }
 
   async findHealthcarePracticesWithCustomEXA(searchQuery, leadCount, workflowConfig) {
+    console.log('🔍 EXA SEARCH DEBUG - Starting search...');
+    console.log('📋 EXA Search Parameters:');
+    console.log(`   Query: "${searchQuery}"`);
+    console.log(`   Lead Count: ${leadCount}`);
+    console.log(`   Workflow Config: ${JSON.stringify(workflowConfig, null, 2)}`);
+    
     try {
-      const response = await axios.post('https://api.exa.ai/search', {
+      const exaRequestPayload = {
         query: searchQuery,
         type: 'neural',
         useAutoprompt: true,
         numResults: Math.min(leadCount * 2, 20), // Get more results for filtering
         category: 'healthcare',
         startPublishedDate: '2020-01-01'
-      }, {
+      };
+      
+      console.log('📤 EXA Request Payload:', JSON.stringify(exaRequestPayload, null, 2));
+      
+      const response = await axios.post('https://api.exa.ai/search', exaRequestPayload, {
         headers: {
           'Authorization': `Bearer ${this.exaApiKey}`,
           'Content-Type': 'application/json'
         }
       });
 
+      console.log('📥 EXA Raw Response Status:', response.status);
+      console.log('📥 EXA Raw Response Headers:', response.headers);
+      console.log('📥 EXA Raw Response Data:', JSON.stringify(response.data, null, 2));
+
       let practices = response.data.results || [];
+      console.log(`🏥 Initial practices found: ${practices.length}`);
+      
+      if (practices.length === 0) {
+        console.log('❌ EXA returned NO results for query:', searchQuery);
+        console.log('🔍 Debugging suggestions:');
+        console.log('   1. Try broader search terms');
+        console.log('   2. Remove location restrictions');
+        console.log('   3. Try different categories');
+        return [];
+      }
+      
+      // Log all practice titles for debugging
+      practices.forEach((practice, index) => {
+        console.log(`🏥 Practice ${index + 1}: "${practice.title}" - ${practice.url}`);
+      });
       
       // Apply location filtering if specified
       if (workflowConfig.location) {
+        const beforeLocationFilter = practices.length;
         practices = practices.filter(practice => 
           practice.title?.toLowerCase().includes(workflowConfig.location.toLowerCase()) ||
           practice.url?.toLowerCase().includes(workflowConfig.location.toLowerCase()) ||
           practice.text?.toLowerCase().includes(workflowConfig.location.toLowerCase())
         );
+        console.log(`🌍 Location filter (${workflowConfig.location}): ${beforeLocationFilter} → ${practices.length} practices`);
       }
       
       // Apply specialty filtering if specified
       if (workflowConfig.specialty) {
+        const beforeSpecialtyFilter = practices.length;
         practices = practices.filter(practice => 
           practice.title?.toLowerCase().includes(workflowConfig.specialty.toLowerCase()) ||
           practice.text?.toLowerCase().includes(workflowConfig.specialty.toLowerCase())
         );
+        console.log(`🏥 Specialty filter (${workflowConfig.specialty}): ${beforeSpecialtyFilter} → ${practices.length} practices`);
       }
 
-      return practices.slice(0, leadCount);
+      const finalPractices = practices.slice(0, leadCount);
+      console.log(`✅ EXA SEARCH COMPLETE: ${finalPractices.length}/${leadCount} practices found`);
+      
+      return finalPractices;
     } catch (error) {
-      console.log(chalk.red('❌ Custom EXA API Error:'), error);
+      console.log('❌ Custom EXA API Error:', error);
+      console.log('❌ Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
       throw error;
     }
   }
