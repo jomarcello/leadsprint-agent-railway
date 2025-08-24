@@ -17,6 +17,8 @@ import fs from 'fs/promises';
 import { execSync } from 'child_process';
 import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 dotenv.config();
 
@@ -46,6 +48,12 @@ class AutonomousHealthcareAgent {
 
     // Initialize Telegram Bot
     this.setupTelegramBot();
+    
+    // Initialize MCP client for ElevenLabs (async, non-blocking)
+    this.initializeMCPClient().catch(error => {
+      console.log(chalk.red(`❌ MCP initialization failed: ${error.message}`));
+      this.mcpConnected = false;
+    });
   }
 
   setupMiddleware() {
@@ -63,6 +71,47 @@ class AutonomousHealthcareAgent {
    */
   throwMissingEnvError(envVar) {
     throw new Error(`🚨 SECURITY: ${envVar} environment variable is required. Never hardcode API keys in source code!`);
+  }
+
+  /**
+   * Initialize MCP Client for ElevenLabs integration
+   */
+  async initializeMCPClient() {
+    try {
+      // Construct server URL with authentication
+      const url = new URL("https://server.smithery.ai/@elevenlabs/elevenlabs-mcp/mcp");
+      url.searchParams.set("api_key", "2f9f056b-67dc-47e1-b6c4-79c41bf85d07");
+      url.searchParams.set("profile", "zesty-clam-4hb4aa");
+      const serverUrl = url.toString();
+
+      console.log(chalk.yellow(`🔧 Connecting to MCP server: ${serverUrl}`));
+
+      const transport = new StreamableHTTPClientTransport(serverUrl);
+
+      // Create MCP client with timeout
+      this.mcpClient = new Client({
+        name: "Autonomous Healthcare Agent",
+        version: "1.0.0"
+      });
+
+      // Set connection timeout to 10 seconds
+      const connectPromise = this.mcpClient.connect(transport);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
+      });
+
+      await Promise.race([connectPromise, timeoutPromise]);
+
+      // List available tools
+      const tools = await this.mcpClient.listTools();
+      console.log(chalk.green(`🔧 MCP Connected! Available tools: ${tools.tools.map(t => t.name).join(", ")}`));
+      
+      this.mcpConnected = true;
+    } catch (error) {
+      console.log(chalk.red(`❌ MCP Connection failed: ${error.message}`));
+      console.log(chalk.yellow(`⚠️ Fallback: ElevenLabs will use master agent ID for all practices`));
+      this.mcpConnected = false;
+    }
   }
 
   setupRoutes() {
@@ -1597,28 +1646,50 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
   }
 
   async createElevenLabsAgent(practiceData) {
-    // This would use ElevenLabs MCP to create voice agent
-    // For now, returning the master agent ID as fallback
+    console.log(`   🎯 Creating ElevenLabs agent for ${practiceData.company}`);
     
     try {
+      if (!this.mcpConnected) {
+        console.log(`   ❌ MCP not connected, using master agent fallback`);
+        return this.config.masterAgentId;
+      }
+
       const prompt = this.generatePracticeSpecificPrompt(practiceData);
+      
       // Generate appropriate first message based on version type
       const firstMessage = practiceData.isGeneralVersion 
         ? `Thank you for calling ${practiceData.company}! This is your wellness assistant. Our experienced medical team is here to help you begin your healing journey. Which of our ${practiceData.practiceType} treatments can I help you schedule today?`
         : `Thank you for calling ${practiceData.company}! This is your wellness assistant. We're here to help you begin your healing journey with ${practiceData.contactName}. Which of our ${practiceData.practiceType} treatments can I help you schedule today?`;
       
-      // In real implementation:
-      // 1. Update master agent with practice data
-      // 2. Duplicate agent for this practice
-      // 3. Return new agent ID
+      // Use ElevenLabs MCP SDK to create agent
+      console.log(`   🔧 Calling ElevenLabs MCP create_agent tool...`);
       
-      const agentId = `agent_${Date.now()}_${practiceData.practiceId}`;
-      console.log(`   🎯 Generated agent prompt for ${practiceData.company}`);
+      const result = await this.mcpClient.callTool({
+        name: "create_agent",
+        arguments: {
+          name: `${practiceData.company} Voice Assistant`,
+          first_message: firstMessage,
+          system_prompt: prompt,
+          voice_id: "pNInz6obpgDQGcFmaJgB", // Default Adam voice
+          language: "en",
+          llm: "gemini-2.0-flash-001",
+          temperature: 0.5
+        }
+      });
+
+      // Extract agent ID from the response
+      const responseText = result.content?.[0]?.text || '';
+      const match = responseText.match(/Agent ID: ([a-zA-Z0-9-]+)/);
+      const agentId = match ? match[1] : `agent_${Date.now()}_${practiceData.practiceId}`;
+      
+      console.log(`   ✅ ElevenLabs agent created: ${agentId}`);
+      console.log(`   📝 Response: ${responseText.substring(0, 200)}...`);
       
       return agentId;
       
     } catch (error) {
-      console.log(`   ⚠️ ElevenLabs fallback: Using master agent`);
+      console.log(`   ❌ ElevenLabs MCP error: ${error.message}`);
+      console.log(`   ⚠️ Using master agent fallback: ${this.config.masterAgentId}`);
       return this.config.masterAgentId;
     }
   }
@@ -1979,7 +2050,7 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
         console.log(`   🔗 Setting variable via CLI: ${key} = ${value}`);
         
         await new Promise((resolve, reject) => {
-          const process = spawn('railway', ['variables', 'set', `${key}=${value}`, '--service', serviceId], {
+          const childProcess = spawn('railway', ['variables', '--set', `${key}=${value}`, '--service', serviceId], {
             env: { 
               ...process.env, 
               RAILWAY_TOKEN: this.config.railwayToken 
@@ -1990,15 +2061,15 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
           let output = '';
           let errorOutput = '';
           
-          process.stdout?.on('data', (data) => {
+          childProcess.stdout?.on('data', (data) => {
             output += data.toString();
           });
           
-          process.stderr?.on('data', (data) => {
+          childProcess.stderr?.on('data', (data) => {
             errorOutput += data.toString();
           });
           
-          process.on('close', (code) => {
+          childProcess.on('close', (code) => {
             if (code === 0) {
               console.log(`   ✅ Variable ${key} set successfully via CLI`);
               resolve();
@@ -2008,7 +2079,7 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
             }
           });
           
-          process.on('error', (error) => {
+          childProcess.on('error', (error) => {
             console.log(`   ❌ Railway CLI spawn error for ${key}: ${error.message}`);
             reject(error);
           });
@@ -2067,7 +2138,7 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
       
       // Try Railway CLI first
       const domain = await new Promise((resolve, reject) => {
-        const process = spawn('railway', ['domain', 'generate', '--service', serviceId], {
+        const childProcess = spawn('railway', ['domain', 'generate', '--service', serviceId], {
           env: { 
             ...process.env, 
             RAILWAY_TOKEN: this.config.railwayToken 
@@ -2078,15 +2149,15 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
         let output = '';
         let errorOutput = '';
         
-        process.stdout?.on('data', (data) => {
+        childProcess.stdout?.on('data', (data) => {
           output += data.toString();
         });
         
-        process.stderr?.on('data', (data) => {
+        childProcess.stderr?.on('data', (data) => {
           errorOutput += data.toString();
         });
         
-        process.on('close', (code) => {
+        childProcess.on('close', (code) => {
           if (code === 0) {
             // Extract domain from CLI output
             const domainMatch = output.match(/https?:\/\/([^\/\s]+)/);
@@ -2103,7 +2174,7 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
           }
         });
         
-        process.on('error', (error) => {
+        childProcess.on('error', (error) => {
           console.log(`   ❌ Railway CLI spawn error: ${error.message}`);
           reject(error);
         });
@@ -2160,10 +2231,11 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
   }
   async createRailwayProject(companyName) {
     const { spawn } = await import('child_process');
-    const projectName = `${companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-ai-demo`;
+    const sanitizedName = companyName.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 20);
+    const projectName = `${sanitizedName}-ai-demo`;
     
     return new Promise((resolve, reject) => {
-      const process = spawn('npx', ['@jasontanswe/railway-mcp'], {
+      const childProcess = spawn('npx', ['@jasontanswe/railway-mcp'], {
         env: { ...process.env, RAILWAY_API_TOKEN: this.config.railwayToken },
         stdio: 'pipe'
       });
@@ -2173,15 +2245,15 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
         params: { name: projectName }
       });
       
-      process.stdin.write(command + '\n');
-      process.stdin.end();
+      childProcess.stdin.write(command + '\n');
+      childProcess.stdin.end();
       
       let output = '';
-      process.stdout.on('data', (data) => {
+      childProcess.stdout.on('data', (data) => {
         output += data.toString();
       });
       
-      process.on('close', (code) => {
+      childProcess.on('close', (code) => {
         if (code === 0) {
           try {
             const result = JSON.parse(output.trim());
@@ -2200,7 +2272,7 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
     const { spawn } = await import('child_process');
     
     return new Promise((resolve, reject) => {
-      const process = spawn('npx', ['@jasontanswe/railway-mcp'], {
+      const childProcess = spawn('npx', ['@jasontanswe/railway-mcp'], {
         env: { ...process.env, RAILWAY_API_TOKEN: this.config.railwayToken },
         stdio: 'pipe'
       });
@@ -2213,15 +2285,15 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
         }
       });
       
-      process.stdin.write(command + '\n');
-      process.stdin.end();
+      childProcess.stdin.write(command + '\n');
+      childProcess.stdin.end();
       
       let output = '';
-      process.stdout.on('data', (data) => {
+      childProcess.stdout.on('data', (data) => {
         output += data.toString();
       });
       
-      process.on('close', (code) => {
+      childProcess.on('close', (code) => {
         if (code === 0) {
           try {
             const result = JSON.parse(output.trim());
@@ -2246,7 +2318,7 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
     const { spawn } = await import('child_process');
     
     return new Promise((resolve, reject) => {
-      const process = spawn('npx', ['@jasontanswe/railway-mcp'], {
+      const childProcess = spawn('npx', ['@jasontanswe/railway-mcp'], {
         env: { ...process.env, RAILWAY_API_TOKEN: this.config.railwayToken },
         stdio: 'pipe'
       });
@@ -2259,15 +2331,15 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
         }
       });
       
-      process.stdin.write(command + '\n');
-      process.stdin.end();
+      childProcess.stdin.write(command + '\n');
+      childProcess.stdin.end();
       
       let output = '';
-      process.stdout.on('data', (data) => {
+      childProcess.stdout.on('data', (data) => {
         output += data.toString();
       });
       
-      process.on('close', (code) => {
+      childProcess.on('close', (code) => {
         if (code === 0) {
           try {
             const result = JSON.parse(output.trim());
