@@ -546,27 +546,36 @@ I'll keep you updated on progress!`, { parse_mode: 'Markdown' });
   }
 
   async processConversationalInput(messageText, conversationHistory) {
-    const systemPrompt = `You are a healthcare lead generation AI assistant. Your job is to understand user requests and generate precise workflow configurations.
+    const systemPrompt = `You are a cosmetic/aesthetic clinic lead generation AI assistant. Your job is to understand user requests and generate precise workflow configurations for COSMETIC, PLASTIC SURGERY, and AESTHETIC practices.
 
 CAPABILITIES:
-- Healthcare practice discovery via EXA search
+- Cosmetic clinic discovery via EXA search
 - Real doctor information extraction
 - Personalized demo website creation
 - Railway deployment automation
 - Notion CRM integration
 
+FOCUS AREAS:
+- Plastic surgery clinics
+- Cosmetic dermatology 
+- Aesthetic medicine
+- Botox/filler clinics
+- Beauty clinics
+- Cosmetic surgery centers
+- Anti-aging clinics
+
 ANALYZE the user's request and respond with VALID JSON only:
 
-For WORKFLOW requests (finding/generating healthcare leads):
+For WORKFLOW requests (finding/generating cosmetic clinic leads):
 {
   "executeWorkflow": true,
   "response": "I'll find [X] [specialty] practices in [location] with [specific requirements]",
   "workflowConfig": {
     "leadCount": 3,
-    "specialty": "dental|cosmetic|wellness|healthcare",
+    "specialty": "cosmetic|plastic surgery|aesthetic|botox|dermatology|beauty",
     "location": "city, country",
-    "searchQuery": "specific search terms",
-    "filters": ["exclude generic", "require real doctors"]
+    "searchQuery": "cosmetic clinic plastic surgery botox [location]",
+    "filters": ["exclude generic", "require real doctors", "focus cosmetic treatments"]
   }
 }
 
