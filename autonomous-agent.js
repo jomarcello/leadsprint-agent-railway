@@ -622,18 +622,22 @@ I'll keep you updated on progress!`, { parse_mode: 'Markdown' });
   }
 
   async processConversationalInput(messageText, conversationHistory) {
-    const systemPrompt = `You are an autonomous AI agent specializing in cosmetic/aesthetic clinic lead generation. You have access to various tools to complete tasks.
-
-FOCUS: Cosmetic clinics, plastic surgery, aesthetic medicine, botox/fillers, beauty treatments
+    const systemPrompt = `You are an autonomous AI agent for healthcare clinic lead generation. You can find ANY type of healthcare clinic - not just cosmetic ones.
 
 AVAILABLE TOOLS:
-- search_cosmetic_clinics: Find cosmetic clinics via EXA search
+- web_search_exa: Search the web for any type of healthcare clinic
+- company_research_exa: Research companies and healthcare businesses  
+- crawling_exa: Extract content from specific clinic websites
 - extract_doctor_info: Get real doctor information from clinic websites
 - create_demo_website: Generate personalized demo website for a clinic
 - deploy_to_railway: Deploy website to Railway platform
 - save_to_notion: Store lead information in Notion CRM
 
-When the user requests cosmetic clinic leads, use the search_cosmetic_clinics tool. When they ask questions, respond naturally without using tools.
+When user asks for clinics, use web_search_exa with an appropriate search query based on their request. 
+Examples:
+- "clinic new york" → web_search_exa with query "medical clinic new york"
+- "dental practice london" → web_search_exa with query "dental practice london"  
+- "cosmetic surgery paris" → web_search_exa with query "cosmetic surgery clinic paris"
 
 CONVERSATION HISTORY:
 ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
@@ -643,31 +647,24 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
       {
         type: "function",
         function: {
-          name: "search_cosmetic_clinics",
-          description: "Search for cosmetic/aesthetic clinics using EXA API",
+          name: "web_search_exa",
+          description: "Search the web using EXA AI for any type of healthcare clinic or medical practice",
           parameters: {
             type: "object",
             properties: {
               query: {
                 type: "string",
-                description: "Search query for cosmetic clinics (e.g., 'cosmetic surgery clinics Austria')"
-              },
-              location: {
-                type: "string", 
-                description: "Target location (city, country)"
+                description: "Search query based on user request (e.g., 'medical clinic new york', 'dental practice london', 'cosmetic surgery paris')"
               },
               count: {
                 type: "integer",
-                description: "Number of clinics to find",
+                description: "Number of results to return",
                 minimum: 1,
-                maximum: 10
-              },
-              specialty: {
-                type: "string",
-                description: "Type of cosmetic practice (e.g., plastic surgery, botox, aesthetic medicine)"
+                maximum: 10,
+                default: 5
               }
             },
-            required: ["query", "location", "count"]
+            required: ["query"]
           }
         }
       },
@@ -771,19 +768,17 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
       
       try {
         switch (functionName) {
-          case 'search_cosmetic_clinics':
+          case 'web_search_exa':
             const results = await this.executeEXASearch(functionArgs);
-            console.log(`✅ Found ${results.length} clinics via AI search`);
+            console.log(`✅ Found ${results.length} clinics via EXA web search`);
             
             // If clinics found, execute the full workflow
             if (results.length > 0) {
               return {
                 executeWorkflow: true,
-                response: `🔍 Found ${results.length} cosmetic clinics in ${functionArgs.location}! Processing them now...`,
+                response: `🔍 Found ${results.length} healthcare clinics! Processing them now...`,
                 workflowConfig: {
-                  leadCount: functionArgs.count,
-                  specialty: functionArgs.specialty || 'cosmetic',
-                  location: functionArgs.location,
+                  leadCount: functionArgs.count || 5,
                   searchQuery: functionArgs.query,
                   preFoundClinics: results
                 }
@@ -828,7 +823,7 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
         query: params.query,
         type: 'neural',
         useAutoprompt: true,
-        numResults: Math.min(params.count * 2, 20), // Get more results for AI filtering
+        numResults: Math.min((params.count || 5) * 2, 20), // Get more results for AI filtering
         category: 'healthcare',
         startPublishedDate: '2020-01-01'
       };
@@ -850,7 +845,7 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
         const isRelevant = await this.evaluateClinicWithAI({
           clinic_title: practice.title,
           clinic_url: practice.url,
-          user_query: params.query + ' in ' + params.location
+          user_query: params.query
         });
         
         if (isRelevant) {
@@ -860,12 +855,12 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
           console.log(`❌ AI rejected: ${practice.title}`);
         }
         
-        if (relevantPractices.length >= params.count) {
+        if (relevantPractices.length >= (params.count || 5)) {
           break; // Stop when we have enough relevant clinics
         }
       }
       
-      return relevantPractices.slice(0, params.count);
+      return relevantPractices.slice(0, params.count || 5);
       
     } catch (error) {
       console.log('❌ EXA Search error:', error);
@@ -877,16 +872,22 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
     console.log('🤔 AI evaluating clinic relevance:', params.clinic_title);
     
     try {
-      const evaluationPrompt = `Evaluate if this clinic is relevant for the user's cosmetic/aesthetic treatment request.
+      const evaluationPrompt = `Evaluate if this clinic is relevant for the user's healthcare/medical request.
 
 CLINIC: "${params.clinic_title}"
 URL: ${params.clinic_url}
 USER REQUEST: ${params.user_query}
 
 CRITERIA:
-- Is this a cosmetic/aesthetic/plastic surgery clinic?
-- Does the location match the user's request?
-- Is this a legitimate medical practice (not generic/directory)?
+- Is this a legitimate healthcare/medical clinic that matches the user's request?
+- Does the location match the user's request (if location specified)?
+- Is this a real medical practice (not generic/directory/aggregator)?
+- Does the clinic type match what the user is looking for?
+
+Examples:
+- If user asks for "clinic new york" → any medical clinic in NY is relevant
+- If user asks for "dental practice london" → only dental clinics in London are relevant  
+- If user asks for "cosmetic surgery paris" → only cosmetic surgery clinics in Paris are relevant
 
 Respond with only "RELEVANT" or "NOT_RELEVANT"`;
 
