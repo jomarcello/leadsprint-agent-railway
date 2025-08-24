@@ -2133,6 +2133,9 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
         console.log(`   ❌ Both CLI and GraphQL failed: ${fallbackError.message}`);
         console.log(`   ⚠️ Continuing deployment without environment variables...`);
       }
+    } catch (error) {
+      console.log(`   ❌ Railway variable setting completely failed:`, error.message);
+      console.log(`   ⚠️ Continuing deployment without environment variables...`);
     }
   }
   
