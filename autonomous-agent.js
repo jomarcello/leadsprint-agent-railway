@@ -17,8 +17,7 @@ import fs from 'fs/promises';
 import { execSync } from 'child_process';
 import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+// MCP imports removed - using direct API calls instead
 
 dotenv.config();
 
@@ -79,43 +78,40 @@ class AutonomousHealthcareAgent {
   }
 
   /**
-   * Initialize MCP Client for ElevenLabs integration
+   * Initialize ElevenLabs integration (direct API approach)
+   * NOTE: MCP requires local Python process, not suitable for Railway deployment
+   * Using direct ElevenLabs API calls instead
    */
   async initializeMCPClient() {
     try {
-      // Construct server URL with authentication
-      const url = new URL("https://server.smithery.ai/@elevenlabs/elevenlabs-mcp/mcp");
-      url.searchParams.set("api_key", "2f9f056b-67dc-47e1-b6c4-79c41bf85d07");
-      url.searchParams.set("profile", "zesty-clam-4hb4aa");
-      const serverUrl = url.toString();
-
-      console.log(chalk.yellow(`🔧 Connecting to MCP server: ${serverUrl}`));
-
-      const transport = new StreamableHTTPClientTransport(serverUrl);
-
-      // Create MCP client with timeout
-      this.mcpClient = new Client({
-        name: "Autonomous Healthcare Agent",
-        version: "1.0.0"
-      });
-
-      // Set connection timeout to 10 seconds
-      const connectPromise = this.mcpClient.connect(transport);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
-      });
-
-      await Promise.race([connectPromise, timeoutPromise]);
-
-      // List available tools
-      const tools = await this.mcpClient.listTools();
-      console.log(chalk.green(`🔧 MCP Connected! Available tools: ${tools.tools.map(t => t.name).join(", ")}`));
+      console.log(chalk.yellow(`🔧 Initializing ElevenLabs direct API integration...`));
       
-      this.mcpConnected = true;
+      // Verify ElevenLabs API key is configured
+      if (!this.config.elevenLabsApiKey || this.config.elevenLabsApiKey.includes('dummy')) {
+        throw new Error('ElevenLabs API key not configured');
+      }
+
+      // Test ElevenLabs API connectivity
+      const response = await axios.get('https://api.elevenlabs.io/v1/user/subscription', {
+        headers: {
+          'xi-api-key': this.config.elevenLabsApiKey
+        },
+        timeout: 10000
+      });
+
+      if (response.status === 200) {
+        console.log(chalk.green(`✅ ElevenLabs API connected! Subscription status: ${response.data.status || 'active'}`));
+        this.mcpConnected = true;
+        this.elevenLabsApiConnected = true;
+      } else {
+        throw new Error(`ElevenLabs API returned status: ${response.status}`);
+      }
+      
     } catch (error) {
-      console.log(chalk.red(`❌ MCP Connection failed: ${error.message}`));
-      console.log(chalk.yellow(`⚠️ Fallback: ElevenLabs will use master agent ID for all practices`));
+      console.log(chalk.red(`❌ ElevenLabs API Connection failed: ${error.message}`));
+      console.log(chalk.yellow(`⚠️ Fallback: Will use master agent ID for all practices`));
       this.mcpConnected = false;
+      this.elevenLabsApiConnected = false;
     }
   }
 
@@ -1680,8 +1676,8 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
     console.log(`   🎯 Creating ElevenLabs agent for ${practiceData.company}`);
     
     try {
-      if (!this.mcpConnected) {
-        console.log(`   ❌ MCP not connected, using master agent fallback`);
+      if (!this.elevenLabsApiConnected) {
+        console.log(`   ❌ ElevenLabs API not connected, using master agent fallback`);
         return this.config.masterAgentId;
       }
 
@@ -1692,34 +1688,54 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
         ? `Thank you for calling ${practiceData.company}! This is your wellness assistant. Our experienced medical team is here to help you begin your healing journey. Which of our ${practiceData.practiceType} treatments can I help you schedule today?`
         : `Thank you for calling ${practiceData.company}! This is your wellness assistant. We're here to help you begin your healing journey with ${practiceData.contactName}. Which of our ${practiceData.practiceType} treatments can I help you schedule today?`;
       
-      // Use ElevenLabs MCP SDK to create agent
-      console.log(`   🔧 Calling ElevenLabs MCP create_agent tool...`);
+      console.log(`   🔧 Creating ElevenLabs ConvAI agent via direct API...`);
       
-      const result = await this.mcpClient.callTool({
-        name: "create_agent",
-        arguments: {
-          name: `${practiceData.company} Voice Assistant`,
-          first_message: firstMessage,
-          system_prompt: prompt,
-          voice_id: "pNInz6obpgDQGcFmaJgB", // Default Adam voice
-          language: "en",
-          llm: "gemini-2.0-flash-001",
-          temperature: 0.5
+      // Create agent using ElevenLabs ConvAI API with new tool_ids format
+      const agentPayload = {
+        name: `${practiceData.company} Voice Assistant`,
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: prompt,
+              built_in_tools: ["end_call"] // System tools by name
+              // Note: No custom tools needed for basic voice assistant
+            },
+            first_message: firstMessage,
+            language: "en",
+            llm: {
+              type: "elevenlabs",
+              model: "gemini-2.0-flash-exp"
+            },
+            voice: {
+              voice_id: "pNInz6obpgDQGcFmaJgB" // Default Adam voice
+            },
+            max_duration_secs: 1800,
+            responsiveness: 0.5,
+            interruption_threshold: 100,
+            llm_websocket_url: null,
+            conversation_config_override: null
+          }
         }
+      };
+
+      const response = await axios.post('https://api.elevenlabs.io/v1/convai/agents', agentPayload, {
+        headers: {
+          'xi-api-key': this.config.elevenLabsApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
       });
 
-      // Extract agent ID from the response
-      const responseText = result.content?.[0]?.text || '';
-      const match = responseText.match(/Agent ID: ([a-zA-Z0-9-]+)/);
-      const agentId = match ? match[1] : `agent_${Date.now()}_${practiceData.practiceId}`;
-      
-      console.log(`   ✅ ElevenLabs agent created: ${agentId}`);
-      console.log(`   📝 Response: ${responseText.substring(0, 200)}...`);
-      
-      return agentId;
+      if (response.status === 200 && response.data.agent_id) {
+        const agentId = response.data.agent_id;
+        console.log(`   ✅ ElevenLabs agent created successfully: ${agentId}`);
+        return agentId;
+      } else {
+        throw new Error(`Unexpected response: ${response.status} - ${JSON.stringify(response.data)}`);
+      }
       
     } catch (error) {
-      console.log(`   ❌ ElevenLabs MCP error: ${error.message}`);
+      console.log(`   ❌ ElevenLabs API error: ${error.response?.data?.detail || error.message}`);
       console.log(`   ⚠️ Using master agent fallback: ${this.config.masterAgentId}`);
       return this.config.masterAgentId;
     }
