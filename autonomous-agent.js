@@ -675,18 +675,18 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
 
     const aiMessage = response.data.choices[0].message;
     console.log('🤖 AI Response:', JSON.stringify(aiMessage, null, 2));
-      
-      // Check if AI wants to use tools
-      if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
-        console.log('🔧 AI requested tool usage');
-        return await this.handleToolCalls(aiMessage, messageText);
-      } else {
-        // Simple conversational response
-        return {
-          executeWorkflow: false,
-          response: aiMessage.content
-        };
-      }
+    
+    // Check if AI wants to use tools
+    if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+      console.log('🔧 AI requested tool usage');
+      return await this.handleToolCalls(aiMessage, messageText);
+    } else {
+      // Simple conversational response
+      return {
+        executeWorkflow: false,
+        response: aiMessage.content
+      };
+    }
 
     } catch (error) {
       console.log('❌ OpenRouter API Error:', error);
