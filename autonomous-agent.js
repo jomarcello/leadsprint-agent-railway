@@ -823,10 +823,9 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
         query: params.query,
         type: 'neural',
         useAutoprompt: true,
-        numResults: Math.min((params.count || 5) * 2, 20), // Get more results for AI filtering
+        numResults: Math.min((params.count || 5) * 4, 40), // Get more results to filter out social media
         category: 'healthcare',
-        startPublishedDate: '2020-01-01',
-        excludeDomains: ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 'yelp.com', 'google.com']
+        startPublishedDate: '2020-01-01'
       };
       
       const response = await axios.post('https://api.exa.ai/search', exaRequestPayload, {
@@ -838,6 +837,18 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
 
       let practices = response.data.results || [];
       console.log(`🏥 EXA found ${practices.length} initial results`);
+      
+      // COMPLETELY BLOCK LinkedIn and directories
+      practices = practices.filter(practice => {
+        if (practice.url.includes('linkedin.com') || practice.url.includes('facebook.com') || 
+            practice.url.includes('yelp.com') || practice.url.includes('google.com') ||
+            practice.title.includes('Linkedin') || practice.title.includes('Facebook')) {
+          console.log(`🚫 BLOCKED: ${practice.title}`);
+          return false;
+        }
+        return true;
+      });
+      console.log(`🏥 After blocking social media: ${practices.length} real clinic websites`);
       
       // Let AI filter the results instead of hardcoded filters
       const relevantPractices = [];
