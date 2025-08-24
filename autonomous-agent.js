@@ -1098,17 +1098,48 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
   }
 
   async processSinglePractice(practice, workflowConfig = null) {
-    // This method processes a single practice with optional custom workflow config
-    // For now, delegate to existing workflow logic
-    // In a full implementation, this would be extracted from the main workflow
+    console.log(chalk.yellow(`🏥 PROCESSING: ${practice.title}`));
+    console.log(chalk.gray(`🔗 URL: ${practice.url}`));
     
-    // Simplified version - you could expand this to use custom parameters
-    return {
-      practice: practice.title,
-      url: practice.url,
-      success: true,
-      customConfig: workflowConfig ? true : false
-    };
+    try {
+      // Use the full healthcare website processing workflow
+      const result = await this.processHealthcareWebsite(practice.url);
+      
+      if (result.status === 'success') {
+        console.log(chalk.green(`✅ ${practice.title} completed successfully`));
+        console.log(chalk.green(`🌐 Demo URL: ${result.demoUrl}`));
+        
+        return {
+          practice: practice.title,
+          url: practice.url,
+          success: true,
+          demoUrl: result.demoUrl,
+          notionId: result.notionId,
+          customConfig: workflowConfig ? true : false,
+          details: result
+        };
+      } else {
+        console.log(chalk.red(`❌ ${practice.title} failed: ${result.error}`));
+        
+        return {
+          practice: practice.title,
+          url: practice.url,
+          success: false,
+          error: result.error,
+          customConfig: workflowConfig ? true : false
+        };
+      }
+    } catch (error) {
+      console.log(chalk.red(`❌ Error processing ${practice.title}:`, error.message));
+      
+      return {
+        practice: practice.title,
+        url: practice.url,
+        success: false,
+        error: error.message,
+        customConfig: workflowConfig ? true : false
+      };
+    }
   }
 
   async executeAutonomousWorkflow(leadCount) {
