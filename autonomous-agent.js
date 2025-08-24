@@ -698,14 +698,13 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
       }
     ];
 
-    // Retry loop for free models (rate limiting, etc.)
+    // Retry loop for free models (rate limiting, etc.) - UNLIMITED RETRIES
     let response;
     let attempt = 0;
-    const maxAttempts = 10;
     
-    while (attempt < maxAttempts) {
+    while (true) {
       try {
-        console.log(`🔄 AI Request attempt ${attempt + 1}/${maxAttempts}`);
+        console.log(`🔄 AI Request attempt ${attempt + 1} (unlimited retries)`);
         
         response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
           model: 'qwen/qwen3-coder:free',
@@ -737,13 +736,8 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
         attempt++;
         console.log(`❌ Attempt ${attempt} failed:`, error.response?.status, error.response?.statusText);
         
-        if (attempt >= maxAttempts) {
-          console.log('❌ Max attempts reached, giving up');
-          throw error;
-        }
-        
-        // Wait before retry (exponential backoff)
-        const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // 1s, 2s, 4s, 8s, 10s max
+        // Always retry with 4000ms delay (unlimited retries)
+        const waitTime = 4000;
         console.log(`⏳ Waiting ${waitTime}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
       }
@@ -896,14 +890,13 @@ CRITERIA:
 
 Respond with only "RELEVANT" or "NOT_RELEVANT"`;
 
-      // Retry loop for evaluation API calls
+      // Retry loop for evaluation API calls - UNLIMITED RETRIES
       let response;
       let attempt = 0;
-      const maxAttempts = 5;
       
-      while (attempt < maxAttempts) {
+      while (true) {
         try {
-          console.log(`🔄 Evaluation attempt ${attempt + 1}/${maxAttempts} for: ${params.clinic_title}`);
+          console.log(`🔄 Evaluation attempt ${attempt + 1} (unlimited retries) for: ${params.clinic_title}`);
           
           response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
             model: 'qwen/qwen3-coder:free',
@@ -929,13 +922,8 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
           attempt++;
           console.log(`❌ Evaluation attempt ${attempt} failed:`, error.response?.status);
           
-          if (attempt >= maxAttempts) {
-            console.log('❌ Max evaluation attempts reached, defaulting to NOT_RELEVANT');
-            return false;
-          }
-          
-          // Wait before retry
-          const waitTime = Math.min(1000 * attempt, 5000); // 1s, 2s, 3s, 4s, 5s max
+          // Always retry with 4000ms delay (unlimited retries)
+          const waitTime = 4000;
           console.log(`⏳ Waiting ${waitTime}ms before evaluation retry...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
@@ -1904,12 +1892,12 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
   }
   
   async waitForGitHubActionsDeployment(repository, practiceId) {
-    const maxAttempts = 30; // 5 minutes max wait time
-    const delayMs = 10000; // 10 seconds between checks
+    const delayMs = 4000; // 4 seconds between checks
+    let attempt = 1;
     
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) { // Unlimited attempts
       try {
-        console.log(`   🔍 Checking deployment status (attempt ${attempt}/${maxAttempts})...`);
+        console.log(`   🔍 Checking deployment status (attempt ${attempt} - unlimited retries)...`);
         
         // Check GitHub Actions runs
         const runsResponse = await axios.get(`https://api.github.com/repos/${repository.full_name}/actions/runs`, {
@@ -1951,16 +1939,14 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
           }
         }
         
-        if (attempt < maxAttempts) {
-          console.log(`   ⏳ Deployment not ready yet, waiting ${delayMs/1000}s...`);
-          await this.sleep(delayMs);
-        }
+        console.log(`   ⏳ Deployment not ready yet, waiting ${delayMs/1000}s...`);
+        await this.sleep(delayMs);
+        attempt++;
         
       } catch (error) {
         console.log(`   ⚠️ Error checking deployment: ${error.message}`);
-        if (attempt < maxAttempts) {
-          await this.sleep(delayMs);
-        }
+        await this.sleep(delayMs);
+        attempt++;
       }
     }
     
