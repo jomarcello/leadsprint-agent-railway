@@ -837,11 +837,24 @@ USER REQUEST: ${messageText}`;
       // Apply location filtering if specified
       if (workflowConfig.location) {
         const beforeLocationFilter = practices.length;
-        practices = practices.filter(practice => 
-          practice.title?.toLowerCase().includes(workflowConfig.location.toLowerCase()) ||
-          practice.url?.toLowerCase().includes(workflowConfig.location.toLowerCase()) ||
-          practice.text?.toLowerCase().includes(workflowConfig.location.toLowerCase())
-        );
+        const location = workflowConfig.location.toLowerCase();
+        
+        // More flexible location matching - include country codes and alternative names
+        const locationVariants = [location];
+        if (location === 'austria') {
+          locationVariants.push('österreich', 'at', '.at', 'vienna', 'wien', 'salzburg', 'innsbruck', 'graz', 'linz');
+        }
+        if (location === 'netherlands') {
+          locationVariants.push('nederland', 'holland', 'nl', '.nl', 'amsterdam', 'rotterdam', 'den haag', 'utrecht');
+        }
+        if (location === 'germany') {
+          locationVariants.push('deutschland', 'de', '.de', 'berlin', 'munich', 'münchen', 'hamburg', 'cologne', 'köln');
+        }
+        
+        practices = practices.filter(practice => {
+          const searchText = `${practice.title || ''} ${practice.url || ''} ${practice.text || ''}`.toLowerCase();
+          return locationVariants.some(variant => searchText.includes(variant));
+        });
         console.log(`🌍 Location filter (${workflowConfig.location}): ${beforeLocationFilter} → ${practices.length} practices`);
       }
       
