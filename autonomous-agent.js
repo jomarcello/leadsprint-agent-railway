@@ -825,7 +825,8 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
         useAutoprompt: true,
         numResults: Math.min((params.count || 5) * 2, 20), // Get more results for AI filtering
         category: 'healthcare',
-        startPublishedDate: '2020-01-01'
+        startPublishedDate: '2020-01-01',
+        excludeDomains: ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 'yelp.com', 'google.com']
       };
       
       const response = await axios.post('https://api.exa.ai/search', exaRequestPayload, {
