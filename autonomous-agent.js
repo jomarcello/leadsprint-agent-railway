@@ -687,11 +687,6 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
         response: aiMessage.content
       };
     }
-
-    } catch (error) {
-      console.log('❌ OpenRouter API Error:', error);
-      throw new Error('AI model communication failed');
-    }
   }
 
   async handleToolCalls(aiMessage, originalQuery) {
