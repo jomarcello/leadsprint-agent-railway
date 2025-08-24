@@ -622,32 +622,59 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
       }
     ];
 
-    try {
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'qwen/qwen-2-7b-instruct:free',
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user', 
-            content: messageText
+    // Retry loop for free models (rate limiting, etc.)
+    let response;
+    let attempt = 0;
+    const maxAttempts = 10;
+    
+    while (attempt < maxAttempts) {
+      try {
+        console.log(`🔄 AI Request attempt ${attempt + 1}/${maxAttempts}`);
+        
+        response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+          model: 'qwen/qwen3-coder:free',
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user', 
+              content: messageText
+            }
+          ],
+          tools: tools,
+          tool_choice: "auto",
+          temperature: 0.1,
+          max_tokens: 2000
+        }, {
+          headers: {
+            'Authorization': `Bearer ${this.config.openRouterApiKey}`,
+            'Content-Type': 'application/json'
           }
-        ],
-        tools: tools,
-        tool_choice: "auto",
-        temperature: 0.1,
-        max_tokens: 2000
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.config.openRouterApiKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
+        });
 
-      const aiMessage = response.data.choices[0].message;
-      console.log('🤖 AI Response:', JSON.stringify(aiMessage, null, 2));
+        // Success! Break out of retry loop
+        break;
+        
+      } catch (error) {
+        attempt++;
+        console.log(`❌ Attempt ${attempt} failed:`, error.response?.status, error.response?.statusText);
+        
+        if (attempt >= maxAttempts) {
+          console.log('❌ Max attempts reached, giving up');
+          throw error;
+        }
+        
+        // Wait before retry (exponential backoff)
+        const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // 1s, 2s, 4s, 8s, 10s max
+        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+
+    const aiMessage = response.data.choices[0].message;
+    console.log('🤖 AI Response:', JSON.stringify(aiMessage, null, 2));
       
       // Check if AI wants to use tools
       if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
@@ -798,22 +825,50 @@ CRITERIA:
 
 Respond with only "RELEVANT" or "NOT_RELEVANT"`;
 
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'qwen/qwen-2-7b-instruct:free',
-        messages: [
-          {
-            role: 'user',
-            content: evaluationPrompt
+      // Retry loop for evaluation API calls
+      let response;
+      let attempt = 0;
+      const maxAttempts = 5;
+      
+      while (attempt < maxAttempts) {
+        try {
+          console.log(`🔄 Evaluation attempt ${attempt + 1}/${maxAttempts} for: ${params.clinic_title}`);
+          
+          response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+            model: 'qwen/qwen3-coder:free',
+            messages: [
+              {
+                role: 'user',
+                content: evaluationPrompt
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 50
+          }, {
+            headers: {
+              'Authorization': `Bearer ${this.config.openRouterApiKey}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          // Success! Break out of retry loop
+          break;
+          
+        } catch (error) {
+          attempt++;
+          console.log(`❌ Evaluation attempt ${attempt} failed:`, error.response?.status);
+          
+          if (attempt >= maxAttempts) {
+            console.log('❌ Max evaluation attempts reached, defaulting to NOT_RELEVANT');
+            return false;
           }
-        ],
-        temperature: 0.1,
-        max_tokens: 50
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.config.openRouterApiKey}`,
-          'Content-Type': 'application/json'
+          
+          // Wait before retry
+          const waitTime = Math.min(1000 * attempt, 5000); // 1s, 2s, 3s, 4s, 5s max
+          console.log(`⏳ Waiting ${waitTime}ms before evaluation retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
         }
-      });
+      }
 
       const evaluation = response.data.choices[0].message.content.trim();
       return evaluation === 'RELEVANT';
