@@ -1658,8 +1658,11 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
     const repoPath = `/tmp/${repository.name}`;
     
     try {
-      // Clone repository
-      execSync(`git clone ${repository.clone_url} ${repoPath}`, { stdio: 'ignore' });
+      // Create authenticated clone URL
+      const authenticatedUrl = repository.clone_url.replace('https://github.com/', `https://${this.config.githubToken}@github.com/`);
+      
+      // Clone repository with authentication
+      execSync(`git clone ${authenticatedUrl} ${repoPath}`, { stdio: 'ignore' });
       
       // Generate complete AI Voice Agent healthcare template inline
       await this.generateCompleteTemplate(repoPath, practiceData, agentId);
@@ -1667,6 +1670,9 @@ Respond with only "RELEVANT" or "NOT_RELEVANT"`;
       // Configure git environment for GitHub Actions
       execSync(`cd ${repoPath} && git config user.name "Healthcare AI Agent"`, { stdio: 'ignore' });
       execSync(`cd ${repoPath} && git config user.email "agent@healthcare-ai.com"`, { stdio: 'ignore' });
+      
+      // Configure authenticated remote for push
+      execSync(`cd ${repoPath} && git remote set-url origin ${authenticatedUrl}`, { stdio: 'ignore' });
       
       // Commit and push changes
       execSync(`cd ${repoPath} && git add .`, { stdio: 'ignore' });
