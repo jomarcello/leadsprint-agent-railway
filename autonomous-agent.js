@@ -624,7 +624,7 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
 
     try {
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'anthropic/claude-3.5-sonnet',
+        model: 'qwen/qwen3-coder:free',
         messages: [
           {
             role: 'system',
@@ -799,7 +799,7 @@ CRITERIA:
 Respond with only "RELEVANT" or "NOT_RELEVANT"`;
 
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'anthropic/claude-3.5-sonnet',
+        model: 'qwen/qwen3-coder:free',
         messages: [
           {
             role: 'user',
